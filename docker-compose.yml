@@ -1,0 +1,123 @@
+version: "3.8"
+
+networks:
+  private_network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.2.0.0/24
+
+services:
+  unbound:
+    image: "mvance/unbound:latest"
+    container_name: unbound
+    restart: unless-stopped
+    hostname: "unbound"
+    volumes:
+      - "./unbound:/opt/unbound/etc/unbound/"
+    networks:
+      private_network:
+        ipv4_address: 10.2.0.200
+
+
+  pihole:
+    depends_on: [unbound]
+    container_name: pihole
+    image: pihole/pihole:latest
+    restart: unless-stopped
+    hostname: pihole
+    dns:
+      - 127.0.0.1
+      - 10.2.0.200 # Points to unbound
+    environment:
+      TZ: "${TZ}" # SET TIMEZONE
+      WEBPASSWORD: "${PI_HOLE_PASS}" # Blank password - Can be whatever you want.
+      ServerIP: 10.1.0.100 # Internal IP of pihole
+      DNS1: 10.2.0.200 # Unbound IP
+      DNS2: 10.2.0.200 # If we don't specify two, it will auto pick google.
+    # Volumes store your data between container upgrades
+    volumes:
+      - "./etc-pihole/:/etc/pihole/"
+      - "./etc-dnsmasq.d/:/etc/dnsmasq.d/"
+    # Recommended but not required (DHCP needs NET_ADMIN)
+    #   https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
+    cap_add:
+      - NET_ADMIN
+    networks:
+      private_network:
+        ipv4_address: 10.2.0.100
+
+  wg-easy:
+    environment:   
+      - WG_HOST=${WG_HOST}
+      - PASSWORD=${WG_PASS}
+      - WG_PORT=51820
+      - WG_DEFAULT_ADDRESS=10.8.0.x
+      - WG_DEFAULT_DNS=10.2.0.100, 10.2.0.200
+      - WG_ALLOWED_IPS=0.0.0.0/0, ::/0
+      - WG_PERSISTENT_KEEPALIVE=15
+      
+    image: weejewel/wg-easy
+    container_name: wg-easy
+    volumes:
+      - .:/etc/wireguard
+    ports:
+      - "51820:51820/udp"
+      - "51821:51821/tcp"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+
+  nginx-proxy-manager:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      # Public HTTP Port:
+      - '80:80'
+      # Public HTTPS Port:
+      - '443:443'
+      # Admin Web Port:
+      - '81:81'
+    environment:
+      # These are the settings to access your db
+      DB_MYSQL_HOST: "db"
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: "${DB_MYSQL_USER}"
+
+      # ⚠️ Required: ########################################
+
+      DB_MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}"
+      
+      ######################################################
+
+      DB_MYSQL_NAME: "npm"
+      # If you would rather use Sqlite uncomment this
+      # and remove all DB_MYSQL_* lines above
+      # DB_SQLITE_FILE: "/data/database.sqlite"
+      # Uncomment this if IPv6 is not enabled on your host
+      # DISABLE_IPV6: 'true'
+    volumes:
+      - ./data/nginx-proxy-manager:/data
+      - ./letsencrypt:/etc/letsencrypt
+    depends_on:
+      - db
+  db:
+    image: yobasystems/alpine-mariadb:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: '1'
+      MYSQL_DATABASE: "npm"
+      MYSQL_USER: "${DB_MYSQL_USER}"
+
+      # ⚠️ Required: ###############################################################
+
+      MYSQL_PASSWORD: "${DB_MYSQL_PASSWORD}" # USE SAME PASSOWRD AS DATABASE TO AVOID ISSUES
+
+      #############################################################################
+
+    volumes:
+      - ./data/mariadb:/var/lib/mysql 
