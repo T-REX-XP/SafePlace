@@ -1,0 +1,7 @@
+TZ=Europe/Kiev
+PI_HOLE_PASS=Dz102612
+WG_HOST=de-vpn.futurein.one
+WG_PASS=Dz102612
+
+DB_MYSQL_USER=db_user
+DB_MYSQL_PASSWORD=Torr0nt0_3062
