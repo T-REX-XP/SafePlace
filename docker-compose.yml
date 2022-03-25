@@ -6,9 +6,6 @@ networks:
       driver: default
       config:
         - subnet: 10.2.0.0/24
-  default:
-    external:
-      name: safeplace_private_network
 
 services:
   unbound:
@@ -29,15 +26,22 @@ services:
     image: pihole/pihole:latest
     restart: unless-stopped
     hostname: pihole
-    dns:
-      - 127.0.0.1
-      - 10.2.0.200 # Points to unbound
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "67:67/udp"
+      - "8080:80/tcp"
+    #dns:
+    #  - 127.0.0.1
+    #  - 10.2.0.200 # Points to unbound
     environment:
       TZ: "${TZ}" # SET TIMEZONE
       WEBPASSWORD: "${PI_HOLE_PASS}" # Blank password - Can be whatever you want.
-      ServerIP: 10.1.0.100 # Internal IP of pihole
-      DNS1: 10.2.0.200 # Unbound IP
-      DNS2: 10.2.0.200 # If we don't specify two, it will auto pick google.
+      FTLCONF_REPLY_ADDR4: 10.2.0.100
+      #ServerIP: 10.2.0.100 # Internal IP of pihole
+      #DNS1: 10.2.0.200 # Unbound IP
+      #DNS2: 10.2.0.200 # If we don't specify two, it will auto pick google.
+      PIHOLE_DNS_: '10.2.0.200#5053;10.2.0.200#5053' #have to put it in twice :D
     # Volumes store your data between container upgrades
     volumes:
       - "./etc-pihole/:/etc/pihole/"
@@ -52,8 +56,11 @@ services:
 
   wg-easy:
     container_name: wg-easy
+    depends_on: [unbound, pihole]
     image: weejewel/wg-easy
-    environment:   
+    environment:
+      - PUID=1000
+      - PGID=1000
       - WG_HOST=${WG_HOST}
       - PASSWORD=${WG_PASS}
       - WG_PORT=51820
@@ -73,6 +80,9 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      private_network:
+        ipv4_address: 10.2.0.30
 
   nginx-proxy-manager:
     image: 'jc21/nginx-proxy-manager:latest'
